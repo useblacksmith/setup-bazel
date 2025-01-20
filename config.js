@@ -89,7 +89,7 @@ if (externalCacheConfig) {
       'WORKSPACE'
     ],
     name: `external-${manifestName}-manifest`,
-    path: `${os.tmpdir()}/external-cache-manifest.txt`
+    path: `${os.tmpdir()}/external-cache/external-cache-manifest.txt`
   }
   externalCache.default = {
     enabled: true,

@@ -1,4 +1,5 @@
 const fs = require('fs')
+const path = require('path')
 const { setTimeout } = require('timers/promises')
 const core = require('@actions/core')
 const github = require('@actions/github')
@@ -132,20 +133,28 @@ async function loadExternalStickyDisks(cacheConfig) {
   }
 
   // First fetch the manifest of external caches used.
-  const path = cacheConfig.manifest.path
+  //
+  // In the case of the external cache config, the manifest path
+  // points to a file that contains the list of external caches to load.
+  // We need to load the sticky disk containing this file to the path at
+  // which the file is expected to be found.
+  // Get the directory path for the manifest file.
+  const manifestFileDir = path.dirname(cacheConfig.manifest.path);
+  const manifestFilePath = cacheConfig.manifest.path;
+  // Load the sticky disk containing the manifest file.
   const manifestMounts = await loadStickyDisk({
     enabled: true,
     files: cacheConfig.manifest.files,
     name: cacheConfig.manifest.name,
-    paths: [path]
+    paths: [manifestFileDir]
   })
 
   let allMounts = { ...manifestMounts }
 
   // Now restore all external caches defined in manifest
-  if (fs.existsSync(path)) {
-    process.stderr.write(`Restoring external caches from ${path}\n`)
-    const manifest = fs.readFileSync(path, { encoding: 'utf8' })
+  if (fs.existsSync(manifestFilePath)) {
+    process.stderr.write(`Restoring external caches from ${manifestFilePath}\n`)
+    const manifest = fs.readFileSync(manifestFilePath, { encoding: 'utf8' })
     for (const name of manifest.split('\n').filter(s => s)) {
       const mounts = await loadStickyDisk({
         enabled: cacheConfig[name]?.enabled ?? cacheConfig.default.enabled,
