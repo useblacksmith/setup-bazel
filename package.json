@@ -22,7 +22,7 @@
     "@connectrpc/connect": "^1.6.1",
     "@connectrpc/connect-node": "^1.6.1",
     "@vercel/ncc": "^0.38.0",
-    "yaml": "^2.2.1"
+    "yaml": "^2.8.0"
   },
   "devDependencies": {
     "jest": "^29.7.0"
