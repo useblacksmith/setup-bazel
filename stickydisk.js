@@ -256,7 +256,13 @@ async function unmountAndCommitStickyDisk(
     }
 
     // Ensure all pending writes are flushed to disk before collecting usage.
-    await execAsync("sync");
+    try {
+      await execAsync("sync");
+    } catch (error) {
+      // sync is a best-effort operation; its failure shouldn't block unmount.
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      core.warning(`sync command failed: ${errorMsg}`);
+    }
 
     // Get filesystem usage BEFORE unmounting (critical timing)
     let fsDiskUsageBytes = null;
@@ -290,9 +296,15 @@ async function unmountAndCommitStickyDisk(
       }
     }
 
-    // Drop page cache, dentries and inodes to ensure clean unmount
-    // This helps prevent "device is busy" errors during unmount
-    await execAsync("sudo sh -c 'echo 3 > /proc/sys/vm/drop_caches'");
+    // Drop page cache, dentries and inodes to ensure clean unmount.
+    // This helps prevent "device is busy" errors during unmount.
+    try {
+      await execAsync("sudo sh -c 'echo 3 > /proc/sys/vm/drop_caches'");
+    } catch (error) {
+      // drop_caches is a best-effort operation; its failure shouldn't block unmount.
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      core.warning(`drop_caches command failed: ${errorMsg}`);
+    }
 
     // Unmount with retries
     for (let attempt = 1; attempt <= 10; attempt++) {
