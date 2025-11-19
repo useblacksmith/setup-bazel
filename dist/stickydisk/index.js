@@ -25954,6 +25954,14 @@ async function unmountAndCommitStickyDisk(
       core.warning(`drop_caches command failed: ${errorMsg}`);
     }
 
+    try {
+      await execAsync(`sudo fsfreeze --freeze "${path}"`);
+      core.info(`Froze filesystem at ${path}`);
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      core.warning(`Failed to freeze filesystem: ${errorMsg}`);
+    }
+
     // Unmount with retries
     for (let attempt = 1; attempt <= 10; attempt++) {
       try {
@@ -25962,6 +25970,16 @@ async function unmountAndCommitStickyDisk(
         break;
       } catch (error) {
         if (attempt === 10) {
+          try {
+            await execAsync(`sudo fsfreeze --unfreeze "${path}"`);
+            core.info(`Unfroze filesystem at ${path}`);
+          } catch (unfreezeError) {
+            const errorMsg =
+              unfreezeError instanceof Error
+                ? unfreezeError.message
+                : String(unfreezeError);
+            core.warning(`Failed to unfreeze filesystem: ${errorMsg}`);
+          }
           throw error;
         }
         core.warning(`Unmount failed, retrying (${attempt}/10)...`);
