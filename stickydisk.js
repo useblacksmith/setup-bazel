@@ -322,16 +322,6 @@ async function unmountAndCommitStickyDisk(
         break;
       } catch (error) {
         if (attempt === 10) {
-          try {
-            await execAsync(`sudo fsfreeze --unfreeze "${path}"`);
-            core.info(`Unfroze filesystem at ${path}`);
-          } catch (unfreezeError) {
-            const errorMsg =
-              unfreezeError instanceof Error
-                ? unfreezeError.message
-                : String(unfreezeError);
-            core.warning(`Failed to unfreeze filesystem: ${errorMsg}`);
-          }
           throw error;
         }
         core.warning(`Unmount failed, retrying (${attempt}/10)...`);
