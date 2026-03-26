@@ -61,14 +61,14 @@ async function restoreExternalCaches(cacheConfig) {
   // Now restore all external caches defined in manifest
   if (fs.existsSync(path)) {
     const manifest = fs.readFileSync(path, { encoding: 'utf8' })
-    for (const name of manifest.split('\n').filter(s => s)) {
-      await restoreCache({
+    const restorePromises = manifest.split('\n').filter(s => s)
+      .map(name => restoreCache({
         enabled: cacheConfig[name]?.enabled ?? cacheConfig.default.enabled,
         files: cacheConfig[name]?.files || cacheConfig.default.files,
         name: cacheConfig.default.name(name),
         paths: cacheConfig.default.paths(name)
-      })
-    }
+      }))
+    await Promise.all(restorePromises)
   }
 }
 
@@ -78,9 +78,9 @@ async function restoreCache(cacheConfig) {
   }
 
   const delay = Math.random() * 1000 // timeout <= 1 sec to reduce 429 errors
-  await setTimeout(delay, async function () {
-    core.startGroup(`Restore cache for ${cacheConfig.name}`)
-
+  await setTimeout(delay)
+  core.startGroup(`Restore cache for ${cacheConfig.name}`)
+  try {
     const hash = await glob.hashFiles(cacheConfig.files.join('\n'))
     const name = cacheConfig.name
     const paths = cacheConfig.paths
@@ -103,9 +103,11 @@ async function restoreCache(cacheConfig) {
     } else {
       core.info(`Failed to restore ${name} cache`)
     }
-
+  } catch (err) {
+    core.warning(`Failed to restore ${cacheConfig.name} cache with error: ${err}`)
+  } finally {
     core.endGroup()
-  }())
+  }
 }
 
 
@@ -148,7 +150,7 @@ async function downloadBazelisk() {
     filename = `${filename}.exe`
   }
 
-  const token = core.getInput('token')
+  const token = process.env.BAZELISK_GITHUB_TOKEN
   const octokit = github.getOctokit(token, {
     baseUrl: 'https://api.github.com'
   })
@@ -175,7 +177,11 @@ async function downloadBazelisk() {
 
   core.debug('Adding to the cache...');
   fs.chmodSync(downloadPath, '755');
-  const cachePath = await tc.cacheFile(downloadPath, 'bazel', 'bazelisk', version)
+  let bazel_name = 'bazel'
+  if (platform == 'windows') {
+    bazel_name = `${bazel_name}.exe`
+  }
+  const cachePath = await tc.cacheFile(downloadPath, bazel_name, 'bazelisk', version)
   core.debug(`Successfully cached bazelisk to ${cachePath}`)
 
   return cachePath

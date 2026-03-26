@@ -12,7 +12,11 @@ async function run() {
   try {
     // Handle sticky disk unmounting and committing.
     await cleanupStickyDisks()
-    await saveExternalCaches(config.externalCache)
+    if (config.cacheSave !== false) {
+      await saveExternalCaches(config.externalCache)
+    } else {
+      core.info('Cache saving is disabled (cache-save: false)')
+    }
   } catch (error) {
     core.setFailed(error.message)
   }

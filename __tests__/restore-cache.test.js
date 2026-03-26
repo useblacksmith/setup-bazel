@@ -13,7 +13,14 @@ jest.mock('yaml', () => ({
         if (typeof input === 'object') {
             return input;
         }
-        return {};
+        if (input === 'true') return true;
+        if (input === 'false') return false;
+        if (input === '' || input === undefined || input === null) return null;
+        try {
+            return JSON.parse(input);
+        } catch {
+            return input;
+        }
     })
 }));
 
@@ -38,6 +45,7 @@ jest.mock('@actions/core', () => ({
     warning: jest.fn(),
     startGroup: jest.fn(),
     endGroup: jest.fn(),
+    exportVariable: jest.fn(),
     getState: jest.fn((name) => {
         const mockState = {
             'google-credentials-path': '',
@@ -53,7 +61,9 @@ jest.mock('@actions/core', () => ({
             'cache-version': 'v1',
             'external-cache': '{}',
             'google-credentials': '',
-            // Add other inputs as needed
+            'module-root': '.',
+            'output-base': '',
+            'token': 'test-token',
         };
         return mockInputs[name] || '';
     }),
@@ -66,8 +76,9 @@ jest.mock('@actions/core', () => ({
     getBooleanInput: jest.fn((name) => {
         const mockInputs = {
             'bazelisk-cache': true,
+            'cache-save': true,
         };
-        return mockInputs[name] || false;
+        return mockInputs[name] !== undefined ? mockInputs[name] : false;
     }),
     setFailed: jest.fn(),
 }));
@@ -88,6 +99,9 @@ function setupTestConfig(inputs = {}) {
             'cache-version': 'v1',
             'external-cache': '{}',
             'google-credentials': '',
+            'module-root': '.',
+            'output-base': '',
+            'token': 'test-token',
             ...inputs  // Override defaults with test-specific inputs
         };
         return defaultInputs[name] || '';
@@ -101,6 +115,21 @@ function setupTestConfig(inputs = {}) {
         };
         return defaultInputs[name] || [];
     });
+
+    // Reset getBooleanInput
+    core.getBooleanInput.mockImplementation((name) => {
+        const defaultInputs = {
+            'bazelisk-cache': true,
+            'cache-save': true,
+        };
+        if (inputs[name] !== undefined && typeof inputs[name] === 'boolean') {
+            return inputs[name];
+        }
+        return defaultInputs[name] !== undefined ? defaultInputs[name] : false;
+    });
+
+    // Reset exportVariable
+    core.exportVariable.mockImplementation(() => {});
 
     // Re-import config to get fresh instance with new inputs
     let freshConfig;
@@ -117,8 +146,8 @@ describe('loadStickyDisk', () => {
 
     it('should accumulate multiple sticky disk mounts', async () => {
         const testConfig = setupTestConfig({
-            'disk-cache': true,
-            'repository-cache': true,
+            'disk-cache': 'true',
+            'repository-cache': 'true',
             'bazelisk-cache': true,
         });
 
@@ -159,7 +188,7 @@ describe('loadStickyDisk', () => {
 
     it('should mount sticky disk for repository cache when enabled', async () => {
         const testConfig = setupTestConfig({
-            'repository-cache': true,
+            'repository-cache': 'true',
         });
 
         const repositoryCache = testConfig.repositoryCache;
@@ -189,12 +218,12 @@ describe('loadStickyDisk', () => {
         });
 
         // Verify bazelrc was updated with repository cache path
-        expect(testConfig.bazelrc).toContain(`build --repository_cache=${testConfig.repositoryCache.paths[0]}`);
+        expect(testConfig.bazelrc).toContain(`common --repository_cache=${testConfig.repositoryCache.paths[0]}`);
     });
 
     it('should mount sticky disk for disk cache when enabled', async () => {
         const testConfig = setupTestConfig({
-            'disk-cache': true,
+            'disk-cache': 'true',
         });
 
         const diskCache = testConfig.diskCache;
@@ -208,7 +237,7 @@ describe('loadStickyDisk', () => {
 
         // Verify mountStickyDisk was called with correct parameters
         expect(mountStickyDisk).toHaveBeenCalledWith(
-            expect.stringMatching(/disk-true-testhash123-[a-f0-9]{8}/),
+            expect.stringMatching(/disk-testhash123-[a-f0-9]{8}/),
             expect.stringMatching(/.*\/\.cache\/bazel-disk/),
             expect.any(AbortSignal),
             expect.any(AbortController)
@@ -220,7 +249,7 @@ describe('loadStickyDisk', () => {
         expect(mounts[mountPath]).toEqual({
             device: '/dev/sda1',
             exposeId: 'test-expose-id',
-            stickyDiskKey: expect.stringMatching(/disk-true-testhash123-[a-f0-9]{8}/)
+            stickyDiskKey: expect.stringMatching(/disk-testhash123-[a-f0-9]{8}/)
         });
 
         // Verify bazelrc was updated with disk cache path
@@ -264,8 +293,9 @@ describe('loadStickyDisk', () => {
         core.getBooleanInput.mockImplementation((name) => {
             const mockInputs = {
                 'bazelisk-cache': false,
+                'cache-save': true,
             };
-            return mockInputs[name] || false;
+            return mockInputs[name] !== undefined ? mockInputs[name] : false;
         });
 
         const testConfig = setupTestConfig({
@@ -288,8 +318,9 @@ describe('loadStickyDisk', () => {
         core.getBooleanInput.mockImplementation((name) => {
             const mockInputs = {
                 'bazelisk-cache': true,
+                'cache-save': true,
             };
-            return mockInputs[name] || false;
+            return mockInputs[name] !== undefined ? mockInputs[name] : false;
         });
 
         const testConfig = setupTestConfig({
