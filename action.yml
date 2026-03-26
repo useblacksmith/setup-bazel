@@ -13,6 +13,10 @@ inputs:
     description: Extra contents to write to user .bazelrc
     required: false
     default: ""
+  cache-save:
+    description: Whether to save caches. Set to false for pull requests to allow restores but prevent saves.
+    required: false
+    default: "true"
   cache-version:
     description: Version of all caches
     required: false
@@ -29,6 +33,14 @@ inputs:
     description: Google Cloud account key for remote cache
     required: false
     default: ""
+  module-root:
+    description: Bazel module root directory. Default is `.`
+    required: false
+    default: "."
+  output-base:
+    description: Bazel output base directory. Default is $HOME/.cache/bazel (POSIX) or D:/_bazel (Windows)
+    required: false
+    default: ""
   repository-cache:
     description: Cache repositories based on MODULE.bazel/WORKSPACE
     required: false
@@ -42,3 +54,4 @@ runs:
   using: node24
   main: dist/main/index.js
   post: dist/post/index.js
+  post-if: "!cancelled()"

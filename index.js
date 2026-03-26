@@ -1,13 +1,13 @@
-const fs = require('fs')
-const { setTimeout } = require('timers/promises')
-const core = require('@actions/core')
-const github = require('@actions/github')
-const glob = require('@actions/glob')
-const tc = require('@actions/tool-cache')
-const config = require('./config')
-const { mountStickyDisk } = require('./stickydisk');
-const crypto = require('crypto')
-const cache = require('@actions/cache')
+import fs from 'fs'
+import crypto from 'crypto'
+import { setTimeout } from 'timers/promises'
+import * as core from '@actions/core'
+import * as cache from '@actions/cache'
+import * as github from '@actions/github'
+import * as glob from '@actions/glob'
+import * as tc from '@actions/tool-cache'
+import config from './config.js'
+import { mountStickyDisk } from './stickydisk.js'
 
 async function run() {
   try {
@@ -38,7 +38,6 @@ async function setupBazel() {
     ...repoMounts,
   };
 
-  // Save the combined mounts from this run
   core.saveState('sticky-disk-mounts', JSON.stringify(allMounts));
 
   return allMounts;
@@ -49,7 +48,6 @@ async function restoreExternalCaches(cacheConfig) {
     return
   }
 
-  // First fetch the manifest of external caches used.
   const path = cacheConfig.manifest.path
   await restoreCache({
     enabled: true,
@@ -58,7 +56,6 @@ async function restoreExternalCaches(cacheConfig) {
     paths: [path]
   })
 
-  // Now restore all external caches defined in manifest
   if (fs.existsSync(path)) {
     const manifest = fs.readFileSync(path, { encoding: 'utf8' })
     for (const name of manifest.split('\n').filter(s => s)) {
@@ -77,10 +74,11 @@ async function restoreCache(cacheConfig) {
     return
   }
 
-  const delay = Math.random() * 1000 // timeout <= 1 sec to reduce 429 errors
-  await setTimeout(delay, async function () {
-    core.startGroup(`Restore cache for ${cacheConfig.name}`)
+  const delay = Math.random() * 1000
+  await setTimeout(delay)
 
+  core.startGroup(`Restore cache for ${cacheConfig.name}`)
+  try {
     const hash = await glob.hashFiles(cacheConfig.files.join('\n'))
     const name = cacheConfig.name
     const paths = cacheConfig.paths
@@ -91,7 +89,7 @@ async function restoreCache(cacheConfig) {
 
     const restoredKey = await cache.restoreCache(
       paths, key, [restoreKey],
-      { segmentTimeoutInMs: 300000 } // 5 minutes
+      { segmentTimeoutInMs: 300000 }
     )
 
     if (restoredKey) {
@@ -103,11 +101,10 @@ async function restoreCache(cacheConfig) {
     } else {
       core.info(`Failed to restore ${name} cache`)
     }
-
+  } finally {
     core.endGroup()
-  }())
+  }
 }
-
 
 async function setupBazelisk() {
   if (config.bazeliskVersion.length == 0) {
@@ -148,7 +145,7 @@ async function downloadBazelisk() {
     filename = `${filename}.exe`
   }
 
-  const token = core.getInput('token')
+  const token = process.env.BAZELISK_GITHUB_TOKEN
   const octokit = github.getOctokit(token, {
     baseUrl: 'https://api.github.com'
   })
@@ -175,7 +172,11 @@ async function downloadBazelisk() {
 
   core.debug('Adding to the cache...');
   fs.chmodSync(downloadPath, '755');
-  const cachePath = await tc.cacheFile(downloadPath, 'bazel', 'bazelisk', version)
+  let bazel_name = "bazel";
+  if (platform == 'windows') {
+    bazel_name = `${bazel_name}.exe`
+  }
+  const cachePath = await tc.cacheFile(downloadPath, bazel_name, 'bazelisk', version)
   core.debug(`Successfully cached bazelisk to ${cachePath}`)
 
   return cachePath
@@ -196,7 +197,6 @@ async function loadExternalStickyDisks(cacheConfig) {
     return {}
   }
 
-  // First fetch the manifest of external caches used.
   const path = cacheConfig.manifest.path
   const manifestMounts = await loadStickyDisk({
     enabled: true,
@@ -207,7 +207,6 @@ async function loadExternalStickyDisks(cacheConfig) {
 
   let allMounts = { ...manifestMounts }
 
-  // Now restore all external caches defined in manifest
   if (fs.existsSync(path)) {
     process.stderr.write(`Restoring external caches from ${path}\n`)
     const manifest = fs.readFileSync(path, { encoding: 'utf8' })
@@ -230,28 +229,27 @@ async function loadStickyDisk(cacheConfig) {
     return {};
   }
 
-  const delay = Math.random() * 1000 // timeout <= 1 sec to reduce contention
-  const mounts = await setTimeout(delay, async function () {
-    core.startGroup(`Setting up sticky disk for ${cacheConfig.name}`)
+  const delay = Math.random() * 1000
+  await setTimeout(delay)
 
+  const newMounts = {};
+  core.startGroup(`Setting up sticky disk for ${cacheConfig.name}`)
+  try {
     const hash = await glob.hashFiles(cacheConfig.files.join('\n'))
     const name = cacheConfig.name
     const paths = cacheConfig.paths
     const baseKey = `${config.baseCacheKey}-${name}-${hash}`
-    const newMounts = {};
 
     try {
       const controller = new AbortController();
 
-      // Mount sticky disk for each path in the config and collect results
       const mountResults = await Promise.all(paths.map(async (path) => {
         try {
-          // Create a unique key for each path by including a hash of the path
           const pathHash = crypto
             .createHash('sha256')
             .update(path)
             .digest('hex')
-            .slice(0, 8); // Take first 8 chars of hash for brevity
+            .slice(0, 8);
 
           const pathKey = `${baseKey}-${pathHash}`;
 
@@ -273,7 +271,6 @@ async function loadStickyDisk(cacheConfig) {
         }
       }));
 
-      // Add successful mounts to the collection
       for (const result of mountResults) {
         if (result) {
           newMounts[result.path] = result.mount;
@@ -284,18 +281,15 @@ async function loadStickyDisk(cacheConfig) {
     } catch (error) {
       core.warning(`Failed to setup sticky disks for ${name}: ${error}`);
     }
-
+  } catch (err) {
+    core.warning(`Failed to set up sticky disk for ${cacheConfig.name}: ${err}`)
+  } finally {
     core.endGroup()
-    return newMounts;
-  }())
+  }
 
-  return mounts;
+  return newMounts;
 }
 
 run()
 
-module.exports = {
-  loadStickyDisk,
-  loadExternalStickyDisks,
-  setupBazel
-}
+export { loadStickyDisk, loadExternalStickyDisks, setupBazel }

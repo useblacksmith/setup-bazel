@@ -1,17 +1,12 @@
-// https://www.npmjs.com/package/get-folder-size
-// Adapted for CommonJS and synchronous Filesystem calls.
-
-const fs = require("fs");
-const path = require("path");
-const { createClient } = require("@connectrpc/connect");
-const { createGrpcTransport } = require("@connectrpc/connect-node");
-const {
-  StickyDiskService,
-} = require("@buf/blacksmith_vm-agent.connectrpc_es/stickydisk/v1/stickydisk_connect");
+import fs from 'fs'
+import path from 'path'
+import * as core from '@actions/core'
+import { createClient } from '@connectrpc/connect'
+import { createGrpcTransport } from '@connectrpc/connect-node'
+import { StickyDiskService } from '@buf/blacksmith_vm-agent.connectrpc_es/stickydisk/v1/stickydisk_connect'
 
 function createStickyDiskClient() {
   const port = process.env.BLACKSMITH_STICKY_DISK_GRPC_PORT || "5557";
-  const core = require("@actions/core");
   core.info(`Creating sticky disk client with port ${port}`);
   const transport = createGrpcTransport({
     baseUrl: `http://192.168.127.1:${port}`,
@@ -21,6 +16,7 @@ function createStickyDiskClient() {
   return createClient(StickyDiskService, transport);
 }
 
+// https://www.npmjs.com/package/get-folder-size
 async function getFolderSize(rootItemPath, options = {}) {
   const fileSizes = new Map();
 
@@ -70,4 +66,4 @@ function lstatSync(path, opts) {
   }
 }
 
-module.exports = { createStickyDiskClient, getFolderSize, lstatSync };
+export { createStickyDiskClient, getFolderSize, lstatSync }

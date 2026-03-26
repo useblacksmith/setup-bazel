@@ -1,16 +1,15 @@
-const core = require('@actions/core')
-const { unmountAndCommitStickyDisk } = require('./stickydisk')
-const process = require('node:process')
-const path = require('node:path')
-const fs = require('node:fs')
-const glob = require('@actions/glob')
-const cache = require('@actions/cache')
-const config = require('./config')
-const { getFolderSize } = require('./util')
+import fs from 'fs'
+import path from 'path'
+import process from 'node:process'
+import * as cache from '@actions/cache'
+import * as core from '@actions/core'
+import * as glob from '@actions/glob'
+import config from './config.js'
+import { getFolderSize } from './util.js'
+import { unmountAndCommitStickyDisk } from './stickydisk.js'
 
 async function run() {
   try {
-    // Handle sticky disk unmounting and committing.
     await cleanupStickyDisks()
     await saveExternalCaches(config.externalCache)
   } catch (error) {
@@ -29,7 +28,6 @@ async function cleanupStickyDisks() {
   const mounts = JSON.parse(mountsJson)
   core.debug(`Mounts: ${JSON.stringify(mounts, null, 2)}`)
 
-  // Process each mounted sticky disk
   await Promise.all(Object.entries(mounts).map(async ([path, mountInfo]) => {
     await unmountAndCommitStickyDisk(path, mountInfo, mountInfo.stickyDiskKey)
   }))
@@ -65,13 +63,13 @@ async function saveExternalCaches(cacheConfig) {
   }
 
   if (savedCaches.length > 0) {
-    const path = cacheConfig.manifest.path
-    fs.writeFileSync(path, savedCaches.join('\n'))
+    const manifestPath = cacheConfig.manifest.path
+    fs.writeFileSync(manifestPath, savedCaches.join('\n'))
     await saveCache({
       enabled: true,
       files: cacheConfig.manifest.files,
       name: cacheConfig.manifest.name,
-      paths: [path]
+      paths: [manifestPath]
     })
   }
 }

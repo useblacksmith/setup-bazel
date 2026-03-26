@@ -1,17 +1,10 @@
-const core = require("@actions/core");
-const { promisify } = require("util");
-const { exec } = require("child_process");
-const { createStickyDiskClient } = require("./util");
+import { promisify } from 'util'
+import { exec } from 'child_process'
+import * as core from '@actions/core'
+import { createStickyDiskClient } from './util.js'
 
 const execAsync = promisify(exec);
 
-/**
- * Gets a sticky disk from the service
- * @param {string} stickyDiskKey - Key to identify the sticky disk
- * @param {Object} options - Optional parameters
- * @param {AbortSignal} [options.signal] - AbortSignal for cancellation
- * @returns {Promise<{expose_id: string, device: string}>}
- */
 async function getStickyDisk(stickyDiskKey, options = {}) {
   const client = createStickyDiskClient();
 
@@ -37,24 +30,15 @@ async function getStickyDisk(stickyDiskKey, options = {}) {
   };
 }
 
-/**
- * Formats a block device with ext4 if needed
- * @param {string} device - Path to the block device
- * @returns {Promise<string>} - Returns the device path
- */
 async function maybeFormatBlockDevice(device) {
   try {
-    // Check if device is formatted with ext4
     try {
-      // Need sudo for blkid as it requires root to read block device metadata
       const { stdout } = await execAsync(
         `sudo blkid -o value -s TYPE ${device}`,
       );
       if (stdout.trim() === "ext4") {
         core.debug(`Device ${device} is already formatted with ext4`);
         try {
-          // Need sudo for resize2fs as it requires root to modify block device
-          // This operation preserves existing filesystem ownership and permissions
           await execAsync(`sudo resize2fs -f ${device}`);
           core.debug(`Resized ext4 filesystem on ${device}`);
         } catch (error) {
@@ -63,16 +47,10 @@ async function maybeFormatBlockDevice(device) {
         return device;
       }
     } catch {
-      // blkid returns non-zero if no filesystem found, which is fine
       core.debug(`No filesystem found on ${device}, will format it`);
     }
 
-    // Format device with ext4, setting default ownership to current user
     core.debug(`Formatting device ${device} with ext4`);
-    // Need sudo for mkfs.ext4 as it requires root to format block device
-    // -m0: Disable reserved blocks (all space available to non-root users)
-    // root_owner=$(id -u):$(id -g): Sets filesystem root directory owner to current (runner) user
-    // This ensures the filesystem is owned by runner user from the start
     await execAsync(
       `sudo mkfs.ext4 -m0 -E root_owner=$(id -u):$(id -g) -Enodiscard,lazy_itable_init=1,lazy_journal_init=1 -F ${device}`,
     );
@@ -97,7 +75,6 @@ async function maybeFormatBlockDevice(device) {
       core.warning(
         `Failed to remove lost+found directory: ${error instanceof Error ? error.message : String(error)}`,
       );
-      // Non-fatal - continue even if cleanup fails
     }
 
     return device;
@@ -107,21 +84,13 @@ async function maybeFormatBlockDevice(device) {
   }
 }
 
-/**
- * Mounts a sticky disk at the specified path
- * @param {string} stickyDiskKey - Key to identify the sticky disk
- * @param {string} stickyDiskPath - Path where the disk should be mounted
- * @param {AbortSignal} signal - Signal for operation cancellation
- * @param {AbortController} controller - Controller for timeout management
- * @returns {Promise<{device: string, exposeId: string}>}
- */
 async function mountStickyDisk(
   stickyDiskKey,
   stickyDiskPath,
   signal,
   controller,
 ) {
-  const timeoutId = setTimeout(() => controller.abort(), 45000);
+  const timeoutId = globalThis.setTimeout(() => controller.abort(), 45000);
   const stickyDiskResponse = await getStickyDisk(stickyDiskKey, { signal });
   const device = stickyDiskResponse.device;
   const exposeId = stickyDiskResponse.expose_id;
@@ -129,16 +98,11 @@ async function mountStickyDisk(
 
   await maybeFormatBlockDevice(device);
 
-  // Create mount point with sudo (supports system directories like /nix, /mnt, etc.)
-  // Then change ownership to runner user so it's accessible
   await execAsync(`sudo mkdir -p ${stickyDiskPath}`);
   await execAsync(`sudo chown $(id -u):$(id -g) ${stickyDiskPath}`);
 
-  // Mount the device with default options
   await execAsync(`sudo mount ${device} ${stickyDiskPath}`);
 
-  // After mounting, ensure the mounted filesystem is owned by runner user
-  // This is important because the mount operation might change ownership
   await execAsync(`sudo chown $(id -u):$(id -g) ${stickyDiskPath}`);
 
   core.debug(
@@ -174,8 +138,6 @@ async function commitStickydisk(
       stickyDiskToken: process.env.BLACKSMITH_STICKYDISK_TOKEN || "",
     };
 
-    // Only include fsDiskUsageBytes if we have valid data (> 0)
-    // This allows storage agent to fall back to previous sizing logic when data is unavailable
     if (fsDiskUsageBytes !== null && fsDiskUsageBytes > 0) {
       commitRequest.fsDiskUsageBytes = BigInt(fsDiskUsageBytes);
       core.debug(`Reporting fs usage: ${fsDiskUsageBytes} bytes`);
@@ -232,7 +194,6 @@ async function cleanupStickyDiskWithoutCommit(exposeId, stickyDiskKey) {
         error instanceof Error ? error.message : String(error)
       }`,
     );
-    // We don't want to fail the build if this fails so we swallow the error.
   }
 }
 
@@ -242,7 +203,6 @@ async function unmountAndCommitStickyDisk(
   stickyDiskKey,
 ) {
   try {
-    // Check if path is mounted
     try {
       const { stdout: mountOutput } = await execAsync(`mount | grep "${path}"`);
       if (!mountOutput) {
@@ -250,21 +210,17 @@ async function unmountAndCommitStickyDisk(
         return;
       }
     } catch {
-      // grep returns non-zero if no match found
       core.debug(`${path} is not mounted, skipping unmount`);
       return;
     }
 
-    // Ensure all pending writes are flushed to disk before collecting usage.
     try {
       await execAsync("sync");
     } catch (error) {
-      // sync is a best-effort operation; its failure shouldn't block unmount.
       const errorMsg = error instanceof Error ? error.message : String(error);
       core.warning(`sync command failed: ${errorMsg}`);
     }
 
-    // Get filesystem usage BEFORE unmounting (critical timing)
     let fsDiskUsageBytes = null;
     const actionFailed = core.getState("action-failed") === "true";
 
@@ -296,17 +252,13 @@ async function unmountAndCommitStickyDisk(
       }
     }
 
-    // Drop page cache, dentries and inodes to ensure clean unmount.
-    // This helps prevent "device is busy" errors during unmount.
     try {
       await execAsync("sudo sh -c 'echo 3 > /proc/sys/vm/drop_caches'");
     } catch (error) {
-      // drop_caches is a best-effort operation; its failure shouldn't block unmount.
       const errorMsg = error instanceof Error ? error.message : String(error);
       core.warning(`drop_caches command failed: ${errorMsg}`);
     }
 
-    // Unmount with retries
     for (let attempt = 1; attempt <= 10; attempt++) {
       try {
         await execAsync(`sudo umount "${path}"`);
@@ -317,7 +269,7 @@ async function unmountAndCommitStickyDisk(
           throw error;
         }
         core.warning(`Unmount failed, retrying (${attempt}/10)...`);
-        await new Promise((resolve) => setTimeout(resolve, 300));
+        await new Promise((resolve) => globalThis.setTimeout(resolve, 300));
       }
     }
 
@@ -335,11 +287,11 @@ async function unmountAndCommitStickyDisk(
   }
 }
 
-module.exports = {
+export {
   getStickyDisk,
   maybeFormatBlockDevice,
   mountStickyDisk,
   unmountAndCommitStickyDisk,
   commitStickydisk,
   cleanupStickyDiskWithoutCommit,
-};
+}
