@@ -12,8 +12,12 @@ concurrency:
 jobs:
   test:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref || github.ref }}
       - uses: actions/setup-node@v4
         with:
           node-version: "24"
@@ -25,17 +29,19 @@ jobs:
       - run: npm test
       - name: Build Action
         run: npm run build
-      - name: Check for uncommitted build changes
+      - name: Commit dist if changed
         run: |
           if ! git diff --quiet dist/; then
-            echo "Error: Build generated changes in dist/. Please run 'npm run build' locally and commit the changes."
-            git status dist/
-            git diff dist/
-            exit 1
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add dist/
+            git commit -m "Rebuild dist bundles"
+            git push
           fi
 
   setup-bazel:
     runs-on: ${{ matrix.os }}-latest
+    needs: test
     strategy:
       matrix:
         os:
@@ -43,7 +49,9 @@ jobs:
           - ubuntu
           - windows
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.head_ref || github.ref }}
       - uses: ./
       - if: failure() && runner.debug == '1'
         uses: mxschmitt/action-tmate@v3
