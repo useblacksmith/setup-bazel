@@ -1,6 +1,6 @@
-const core = require('@actions/core');
-const { mountStickyDisk } = require('../stickydisk');
-const { loadStickyDisk, setupBazel } = require('../index');
+import * as core from '@actions/core';
+import { mountStickyDisk } from '../stickydisk.js';
+import { loadStickyDisk, setupBazel } from '../index.js';
 
 // Mock the stickydisk module
 jest.mock('../stickydisk', () => ({
