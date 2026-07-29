@@ -5,7 +5,8 @@ const github = require('@actions/github')
 const glob = require('@actions/glob')
 const tc = require('@actions/tool-cache')
 const config = require('./config')
-const { mountStickyDisk } = require('./stickydisk');
+const { mountStickyDisk, ensureFallbackDirectory } = require('./stickydisk');
+const { getAgentEndpoint } = require('./util');
 const crypto = require('crypto')
 const cache = require('@actions/cache')
 
@@ -230,6 +231,16 @@ async function loadStickyDisk(cacheConfig) {
     return {};
   }
 
+  if (!getAgentEndpoint()) {
+    core.warning(
+      `BLACKSMITH_AGENT_ADDR or BLACKSMITH_STICKY_DISK_GRPC_PORT is not set; sticky disks are unavailable on this runner. Creating cache directories for ${cacheConfig.name} without persistence.`
+    );
+    for (const path of cacheConfig.paths) {
+      await ensureFallbackDirectory(path);
+    }
+    return {};
+  }
+
   const delay = Math.random() * 1000 // timeout <= 1 sec to reduce contention
   const mounts = await setTimeout(delay, async function () {
     core.startGroup(`Setting up sticky disk for ${cacheConfig.name}`)
@@ -268,7 +279,10 @@ async function loadStickyDisk(cacheConfig) {
             mount: { device, exposeId, stickyDiskKey: pathKey }
           };
         } catch (error) {
-          core.warning(`Failed to mount sticky disk for ${path}: ${error}`);
+          core.warning(
+            `Failed to mount sticky disk for ${path}: ${error}. Creating it as a plain directory instead.`
+          );
+          await ensureFallbackDirectory(path);
           return null;
         }
       }));
