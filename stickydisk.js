@@ -147,6 +147,20 @@ async function mountStickyDisk(
   return { device, exposeId };
 }
 
+async function ensureFallbackDirectory(stickyDiskPath) {
+  try {
+    await execAsync(`sudo mkdir -p ${stickyDiskPath}`);
+    await execAsync(`sudo chown $(id -u):$(id -g) ${stickyDiskPath}`);
+    core.info(
+      `Sticky disk unavailable; created empty directory at ${stickyDiskPath} (contents will not persist across runs)`,
+    );
+  } catch (error) {
+    core.warning(
+      `Failed to create fallback directory at ${stickyDiskPath}: ${error}`,
+    );
+  }
+}
+
 async function commitStickydisk(
   exposeId,
   stickyDiskKey,
@@ -339,6 +353,7 @@ module.exports = {
   getStickyDisk,
   maybeFormatBlockDevice,
   mountStickyDisk,
+  ensureFallbackDirectory,
   unmountAndCommitStickyDisk,
   commitStickydisk,
   cleanupStickyDiskWithoutCommit,

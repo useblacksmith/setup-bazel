@@ -43952,6 +43952,20 @@ async function mountStickyDisk(
   return { device, exposeId };
 }
 
+async function ensureFallbackDirectory(stickyDiskPath) {
+  try {
+    await execAsync(`sudo mkdir -p ${stickyDiskPath}`);
+    await execAsync(`sudo chown $(id -u):$(id -g) ${stickyDiskPath}`);
+    core.info(
+      `Sticky disk unavailable; created empty directory at ${stickyDiskPath} (contents will not persist across runs)`,
+    );
+  } catch (error) {
+    core.warning(
+      `Failed to create fallback directory at ${stickyDiskPath}: ${error}`,
+    );
+  }
+}
+
 async function commitStickydisk(
   exposeId,
   stickyDiskKey,
@@ -44144,6 +44158,7 @@ module.exports = {
   getStickyDisk,
   maybeFormatBlockDevice,
   mountStickyDisk,
+  ensureFallbackDirectory,
   unmountAndCommitStickyDisk,
   commitStickydisk,
   cleanupStickyDiskWithoutCommit,
@@ -44166,12 +44181,31 @@ const {
   StickyDiskService,
 } = __nccwpck_require__(74402);
 
+function getAgentAddr() {
+  return process.env.BLACKSMITH_AGENT_ADDR || undefined;
+}
+
+function getAgentEndpoint() {
+  const addr = getAgentAddr();
+  const port = process.env.BLACKSMITH_STICKY_DISK_GRPC_PORT;
+  if (!addr || !port) {
+    return undefined;
+  }
+  return `${addr}:${port}`;
+}
+
 function createStickyDiskClient() {
-  const port = process.env.BLACKSMITH_STICKY_DISK_GRPC_PORT || "5557";
+  const addr = getAgentAddr();
+  const port = process.env.BLACKSMITH_STICKY_DISK_GRPC_PORT;
+  if (!addr || !port) {
+    throw new Error(
+      "BLACKSMITH_AGENT_ADDR or BLACKSMITH_STICKY_DISK_GRPC_PORT is not set; cannot dial the Blacksmith agent",
+    );
+  }
   const core = __nccwpck_require__(37484);
-  core.info(`Creating sticky disk client with port ${port}`);
+  core.info(`Creating sticky disk client for ${addr}:${port}`);
   const transport = createGrpcTransport({
-    baseUrl: `http://192.168.127.1:${port}`,
+    baseUrl: `http://${addr}:${port}`,
     httpVersion: "2",
   });
 
@@ -44196,21 +44230,21 @@ async function getFolderSize(rootItemPath, options = {}) {
       if (typeof directoryItems !== "object") return;
       await Promise.all(
         directoryItems.map((directoryItem) =>
-          processItem(path.join(itemPath, directoryItem))
-        )
+          processItem(path.join(itemPath, directoryItem)),
+        ),
       );
     }
   }
 
   let folderSize = Array.from(fileSizes.values()).reduce(
     (total, fileSize) => total + fileSize,
-    0n
+    0n,
   );
 
   if (!options.bigint) {
     if (folderSize > BigInt(Number.MAX_SAFE_INTEGER)) {
       throw new RangeError(
-        "The folder size is too large to return as a Number. You can instruct this package to return a BigInt instead."
+        "The folder size is too large to return as a Number. You can instruct this package to return a BigInt instead.",
       );
     }
     folderSize = Number(folderSize);
@@ -44227,7 +44261,13 @@ function lstatSync(path, opts) {
   }
 }
 
-module.exports = { createStickyDiskClient, getFolderSize, lstatSync };
+module.exports = {
+  createStickyDiskClient,
+  getAgentAddr,
+  getAgentEndpoint,
+  getFolderSize,
+  lstatSync,
+};
 
 
 /***/ }),

@@ -1,0 +1,22 @@
+name: Blacksmith smoke test
+
+on:
+  workflow_dispatch:
+  pull_request:
+
+jobs:
+  smoke:
+    name: Sticky disk caches on blacksmith runner
+    runs-on: blacksmith
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Assert BLACKSMITH_AGENT_ADDR is advertised
+        run: test -n "$BLACKSMITH_AGENT_ADDR"
+
+      - uses: ./
+        with:
+          bazelisk-cache: true
+
+      - name: Verify bazelisk cache is a sticky disk mount
+        run: mountpoint ~/.cache/bazelisk

@@ -4,8 +4,27 @@ const { loadStickyDisk, setupBazel } = require('../index');
 
 // Mock the stickydisk module
 jest.mock('../stickydisk', () => ({
-    mountStickyDisk: jest.fn()
+    mountStickyDisk: jest.fn(),
+    ensureFallbackDirectory: jest.fn()
 }));
+
+// Mock the util module: it pulls in the ESM-only generated gRPC client,
+// which jest cannot load, and the agent env checks are not under test here.
+jest.mock('../util', () => ({
+    getAgentAddr: jest.fn(() => process.env.BLACKSMITH_AGENT_ADDR || undefined),
+    getAgentEndpoint: jest.fn(() => {
+        const addr = process.env.BLACKSMITH_AGENT_ADDR;
+        const port = process.env.BLACKSMITH_STICKY_DISK_GRPC_PORT;
+        return addr && port ? `${addr}:${port}` : undefined;
+    }),
+    createStickyDiskClient: jest.fn(),
+    getFolderSize: jest.fn(),
+    lstatSync: jest.fn()
+}));
+
+// Sticky disks require an advertised agent address and gRPC port
+process.env.BLACKSMITH_AGENT_ADDR = '192.168.127.1';
+process.env.BLACKSMITH_STICKY_DISK_GRPC_PORT = '5557';
 
 // Mock YAML parser
 jest.mock('yaml', () => ({
